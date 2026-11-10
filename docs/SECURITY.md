@@ -2,21 +2,24 @@
 
 ## Threat model
 
-`trysac-cqrs-kit` is a pure library without I/O. The main risks are:
+`cqrs_kit` is a synchronous, in-process Python library with no runtime dependencies and no I/O. Its security boundary is the application process; it does not authenticate, authorize, isolate, or sandbox handlers, middleware, or subscribers.
 
-- **Supply chain**: a compromised dependency or CI action. Mitigation: no runtime dependencies,
-  Dependabot weekly updates, actions pinned to major versions, minimal workflow permissions.
-- **Leaked secrets**: tokens committed by mistake. Mitigation: `gitleaks` runs in the local gates
-  and in CI; `.env` files are git-ignored.
-- **Insecure code**: shell injection, weak hashes, unsafe deserialization. Mitigation: Ruff's
-  `S` rules in lint and a `security` gate (Bandit, high severity fails, `# nosec` ignored); fix the
-  code instead of silencing it.
-- **Untrusted input**: callers may pass hostile strings. Mitigation: validate input and fail with
-  explicit exceptions; never `eval`, `exec` or deserialize untrusted data.
+Defended:
+
+- Exact-type dispatch: a subclass message does not invoke a handler or subscriber registered for a base class.
+- Command event integrity: events emitted during a command dispatch are buffered and published only after the handler and all middleware return normally; an exception discards the buffer and propagates unchanged.
+- Subscriber isolation: a subscriber exception is logged at WARNING with the event type name only, reported through `on_event` if configured, and does not stop later subscribers.
+- Resource limits: each bus limits registered types to 10,000; `EventBus` limits subscribers to 1,000 per event type; `CommandBus` limits dispatch nesting to `max_depth` (default 32) and emissions per dispatch to `max_events_per_dispatch` (default 1,000). Exceeding these raises `CqrsError` with the documented code.
+- No dynamic execution: the code does not use `eval`, `exec`, or deserialization of untrusted data.
+
+Not defended:
+
+- Code executed inside handlers, middleware, or subscribers; those callables run with the caller's full privileges.
+- Authentication, authorization, input validation beyond the checks in `register` and `subscribe` (the type is a class and the handler is callable), secret storage, transport security, or persistence.
+- Thread safety or concurrent mutation of bus registries; buses are synchronous and use no locks.
+- Memory exhaustion from large event or message payloads; limits count entries, not payload size.
+- Async execution, process boundaries, outbox delivery, or exactly-once semantics.
 
 ## Publishing
 
-Releases are published to PyPI with trusted publishing (OIDC) when available, never with a
-long-lived token stored in the repository.
-
-To report a vulnerability, see [SECURITY.md](../SECURITY.md).
+The library contains no release, publishing, credential, or network code. Any release automation and PyPI credentials live outside `src/cqrs_kit`.

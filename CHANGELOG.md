@@ -9,4 +9,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added `cqrs_kit` with `EventBus`, `CommandBus`, and `QueryBus` implementing strict CQRS patterns.
 - Initial project structure from the factory utility template.
