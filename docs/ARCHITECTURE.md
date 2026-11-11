@@ -1,29 +1,36 @@
 # Architecture
 
-## Purpose
+## Overview
 
-`trysac-cqrs-kit` is a small, dependency-free Python library: Typed command, query and event buses for Python: exact-type handler lookup, onion middleware, events published only after a command succeeds, bounded nesting
+`cqrs_kit` implements three synchronous buses for command-query responsibility segregation (CQRS) in Python, with strict rules designed for testability and predictability.
 
-## Shape
+## Core principles
 
-```text
-caller code --> cqrs_kit (public API in __init__.py)
-                    |
-                    +-- pure functions, no I/O, no global state
-```
+1. **Exact-type lookup**  
+   Handlers and subscribers are stored in dictionaries keyed by the exact runtime type of the message (`type(message)`). Inheritance is ignored. This prevents accidental dispatch to a base handler when a subclass is intended.
 
-- **Public API**: the names listed in `__all__` of `src/cqrs_kit/__init__.py`. Anything else is
-  internal and may change without a major version.
-- **Errors**: invalid input raises built-in exceptions (`ValueError`, `TypeError`) with a clear
-  message; the library never prints or exits.
-- **Side effects**: none. If a feature needs I/O, isolate it in its own module behind a small
-  interface and record the choice in an ADR.
+2. **Onion middleware**  
+   Middleware is a simple callable `(message, call_next) -> result`. The chain is built from the supplied sequence in list order, with the first middleware outermost. A middleware may short-circuit by not calling `call_next`.
 
-## Quality contract
+3. **Buffered command events**  
+   During `CommandBus.dispatch`, calls to `emit` append events to a local buffer. The buffer is published to the associated `EventBus` only after the handler and all middleware return without exception. A nested `dispatch` creates its own buffer independently.
 
-`scripts/check.py` is the single definition of the gates; `fabrica.json` tells the factory and CI
-how to run it. See [TESTING.md](TESTING.md).
+4. **Bounded resources**  
+   - `max_depth` limits recursive dispatch calls (default 32).
+   - `max_events_per_dispatch` limits event emissions per dispatch (default 1000).
+   - Each bus limits the total number of registered types (10,000).
+   - `EventBus` additionally limits subscribers per event type (1,000).
 
-## Decisions
+## Error model
 
-Architecture decisions are recorded in [decisions/](decisions/) as numbered ADRs.
+All failures raise `CqrsError` with a `code` attribute from a fixed set. Original exceptions from handlers, middleware, or subscribers are propagated without wrapping (except subscriber failures, which are caught, logged, and reported).
+
+## Logging
+
+The package uses `logging.getLogger(__name__)` and attaches a `NullHandler`. Subscriber failures are logged at WARNING with the event type name only; no exception details or event payloads are logged.
+
+## Testing strategy
+
+- Unit tests cover every acceptance criterion and additional edge cases (unsubscribe during publish, middleware short‑circuit, plain class messages, `None` return).
+- Limits are tested by temporarily overriding internal limit attributes.
+- Deterministic: no time, randomness, or I/O.
